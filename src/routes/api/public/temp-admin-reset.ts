@@ -11,6 +11,7 @@
  *
  * !!! DELETE THIS FILE AND UNSET TEMP_ADMIN_RESET_SECRET /
  * !!! TEMP_ADMIN_RESET_PASSWORD ONCE THE PASSWORD HAS BEEN RESET.
+ * (sync marker: re-pushed to trigger GitHub sync)
  */
 import { createFileRoute } from "@tanstack/react-router";
 
