@@ -21,6 +21,7 @@ import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedPracticeRouteImport } from './routes/_authenticated/practice'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedAchievementsRouteImport } from './routes/_authenticated/achievements'
+import { Route as ApiPublicTempAdminResetRouteImport } from './routes/api/public/temp-admin-reset'
 import { Route as AdminAdminUsersRouteImport } from './routes/_admin/admin.users'
 import { Route as AdminAdminSettingsRouteImport } from './routes/_admin/admin.settings'
 import { Route as AdminAdminDashboardRouteImport } from './routes/_admin/admin.dashboard'
@@ -87,6 +88,11 @@ const AuthenticatedAchievementsRoute =
     path: '/achievements',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const ApiPublicTempAdminResetRoute = ApiPublicTempAdminResetRouteImport.update({
+  id: '/api/public/temp-admin-reset',
+  path: '/api/public/temp-admin-reset',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminAdminUsersRoute = AdminAdminUsersRouteImport.update({
   id: '/admin/users',
   path: '/admin/users',
@@ -135,6 +141,7 @@ export interface FileRoutesByFullPath {
   '/admin/dashboard': typeof AdminAdminDashboardRoute
   '/admin/settings': typeof AdminAdminSettingsRoute
   '/admin/users': typeof AdminAdminUsersRoute
+  '/api/public/temp-admin-reset': typeof ApiPublicTempAdminResetRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -153,6 +160,7 @@ export interface FileRoutesByTo {
   '/admin/dashboard': typeof AdminAdminDashboardRoute
   '/admin/settings': typeof AdminAdminSettingsRoute
   '/admin/users': typeof AdminAdminUsersRoute
+  '/api/public/temp-admin-reset': typeof ApiPublicTempAdminResetRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -174,6 +182,7 @@ export interface FileRoutesById {
   '/_admin/admin/dashboard': typeof AdminAdminDashboardRoute
   '/_admin/admin/settings': typeof AdminAdminSettingsRoute
   '/_admin/admin/users': typeof AdminAdminUsersRoute
+  '/api/public/temp-admin-reset': typeof ApiPublicTempAdminResetRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -194,6 +203,7 @@ export interface FileRouteTypes {
     | '/admin/dashboard'
     | '/admin/settings'
     | '/admin/users'
+    | '/api/public/temp-admin-reset'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -212,6 +222,7 @@ export interface FileRouteTypes {
     | '/admin/dashboard'
     | '/admin/settings'
     | '/admin/users'
+    | '/api/public/temp-admin-reset'
   id:
     | '__root__'
     | '/'
@@ -232,6 +243,7 @@ export interface FileRouteTypes {
     | '/_admin/admin/dashboard'
     | '/_admin/admin/settings'
     | '/_admin/admin/users'
+    | '/api/public/temp-admin-reset'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -240,6 +252,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   LoginRoute: typeof LoginRoute
   AdminLoginRoute: typeof AdminLoginRoute
+  ApiPublicTempAdminResetRoute: typeof ApiPublicTempAdminResetRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -327,6 +340,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/achievements'
       preLoaderRoute: typeof AuthenticatedAchievementsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/api/public/temp-admin-reset': {
+      id: '/api/public/temp-admin-reset'
+      path: '/api/public/temp-admin-reset'
+      fullPath: '/api/public/temp-admin-reset'
+      preLoaderRoute: typeof ApiPublicTempAdminResetRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_admin/admin/users': {
       id: '/_admin/admin/users'
@@ -424,6 +444,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   LoginRoute: LoginRoute,
   AdminLoginRoute: AdminLoginRoute,
+  ApiPublicTempAdminResetRoute: ApiPublicTempAdminResetRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
