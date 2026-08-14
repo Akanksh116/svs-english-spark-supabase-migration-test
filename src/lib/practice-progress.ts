@@ -188,7 +188,22 @@ export async function fetchPracticeSessions(
     fluency: row.fluency,
     confidence: row.confidence,
     finishedAt: row.created_at,
+    details: parseSessionDetails(row.notes),
   }));
+}
+
+/** `notes` holds a JSON blob of evaluation feedback + transcript; ignore anything else. */
+function parseSessionDetails(notes: string | null): SessionDetails | undefined {
+  if (!notes) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(notes);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as SessionDetails;
+    }
+  } catch {
+    /* legacy plain-text note */
+  }
+  return undefined;
 }
 
 export async function recordPracticeSession(
