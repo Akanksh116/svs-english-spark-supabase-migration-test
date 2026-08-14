@@ -189,7 +189,7 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
         newAchievements.map((id: string) => ACHIEVEMENT_LABELS[id] ?? id),
       );
     } catch {
-      setError("Could not generate your report. Please try again.");
+      setError("Your report was created but saving it failed. Please try Finish again.");
       setFinishing(false);
     }
   };
