@@ -9,6 +9,25 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
+/** Transcript turn as shown in the coach panel. */
+export type SessionTurn = { role: "user" | "model"; text: string };
+
+/**
+ * Extra evaluation detail persisted alongside the numeric scores.
+ * Stored as JSON in `practice_sessions.notes` so no schema change is needed.
+ */
+export type SessionDetails = {
+  modeId?: string;
+  challengeTitle?: string;
+  startedAt?: string;
+  completedAt?: string;
+  transcript?: SessionTurn[];
+  strengths?: string[];
+  improvements?: string[];
+  betterSentences?: string[];
+  suggestedPractice?: string;
+};
+
 export type PracticeSessionResult = {
   modeTitle: string;
   durationMinutes: number;
@@ -19,6 +38,7 @@ export type PracticeSessionResult = {
   fluency: number;
   confidence: number;
   finishedAt: string;
+  details?: SessionDetails;
 };
 
 export type PracticeStats = {
