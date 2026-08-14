@@ -19,7 +19,8 @@ import { DifficultyBadge } from "@/components/learning/DifficultyBadge";
 import type { PracticeMode } from "@/components/practice/PracticeModeCard";
 import type { SessionSummaryData } from "@/components/practice/SessionSummary";
 import { VoiceRecorderPanel } from "@/components/practice/VoiceRecorderPanel";
-import { coachEvaluate, coachReply } from "@/lib/coach.functions";
+import { toast } from "sonner";
+import { coachEvaluate, coachReply, type CoachEvaluation } from "@/lib/coach.functions";
 import { useRecordPracticeSession, ACHIEVEMENT_LABELS } from "@/lib/practice-progress";
 
 type Turn = { role: "user" | "model"; text: string };
