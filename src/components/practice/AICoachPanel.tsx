@@ -124,6 +124,7 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
     setFinishing(true);
     setError(null);
     const durationMinutes = Math.max(1, Math.round(seconds / 60));
+    let e: Awaited<ReturnType<typeof evaluate>> extends never ? never : CoachEvaluation;
     try {
       const res = await evaluate({
         data: { modeTitle: mode.title, challenge, durationMinutes, history: turns },
@@ -133,7 +134,15 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
         setFinishing(false);
         return;
       }
-      const e = res.evaluation;
+      e = res.evaluation;
+    } catch {
+      setError("Could not generate your report. Please try again.");
+      setFinishing(false);
+      return;
+    }
+
+    // Only a session that reached this point (evaluated on Finish) is persisted.
+    try {
       const { newAchievements } = await recordSession.mutateAsync({
         modeTitle: mode.title,
         durationMinutes,
@@ -144,7 +153,19 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
         fluency: e.fluency,
         confidence: e.confidence,
         finishedAt: new Date().toISOString(),
+        details: {
+          modeId: mode.id,
+          challengeTitle: challenge?.title,
+          startedAt: startedAt.current,
+          completedAt: new Date().toISOString(),
+          transcript: turns,
+          strengths: e.strengths,
+          improvements: e.improvements,
+          betterSentences: e.betterSentences,
+          suggestedPractice: e.suggestedPractice,
+        },
       });
+      toast.success("Session saved to your progress");
       onFinish(
         {
           topic: challenge?.title ?? mode.title,
