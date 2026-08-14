@@ -124,7 +124,7 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
     setFinishing(true);
     setError(null);
     const durationMinutes = Math.max(1, Math.round(seconds / 60));
-    let e: Awaited<ReturnType<typeof evaluate>> extends never ? never : CoachEvaluation;
+    let e: CoachEvaluation;
     try {
       const res = await evaluate({
         data: { modeTitle: mode.title, challenge, durationMinutes, history: turns },
