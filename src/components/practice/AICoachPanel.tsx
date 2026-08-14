@@ -19,7 +19,8 @@ import { DifficultyBadge } from "@/components/learning/DifficultyBadge";
 import type { PracticeMode } from "@/components/practice/PracticeModeCard";
 import type { SessionSummaryData } from "@/components/practice/SessionSummary";
 import { VoiceRecorderPanel } from "@/components/practice/VoiceRecorderPanel";
-import { coachEvaluate, coachReply } from "@/lib/coach.functions";
+import { toast } from "sonner";
+import { coachEvaluate, coachReply, type CoachEvaluation } from "@/lib/coach.functions";
 import { useRecordPracticeSession, ACHIEVEMENT_LABELS } from "@/lib/practice-progress";
 
 type Turn = { role: "user" | "model"; text: string };
@@ -53,6 +54,7 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
   const [voiceConfidence, setVoiceConfidence] = useState<number | null>(null);
   const recordSession = useRecordPracticeSession();
   const started = useRef(false);
+  const startedAt = useRef(new Date().toISOString());
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -124,6 +126,7 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
     setFinishing(true);
     setError(null);
     const durationMinutes = Math.max(1, Math.round(seconds / 60));
+    let e: CoachEvaluation;
     try {
       const res = await evaluate({
         data: { modeTitle: mode.title, challenge, durationMinutes, history: turns },
@@ -133,7 +136,15 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
         setFinishing(false);
         return;
       }
-      const e = res.evaluation;
+      e = res.evaluation;
+    } catch {
+      setError("Could not generate your report. Please try again.");
+      setFinishing(false);
+      return;
+    }
+
+    // Only a session that reached this point (evaluated on Finish) is persisted.
+    try {
       const { newAchievements } = await recordSession.mutateAsync({
         modeTitle: mode.title,
         durationMinutes,
@@ -144,7 +155,19 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
         fluency: e.fluency,
         confidence: e.confidence,
         finishedAt: new Date().toISOString(),
+        details: {
+          modeId: mode.id,
+          challengeTitle: challenge?.title,
+          startedAt: startedAt.current,
+          completedAt: new Date().toISOString(),
+          transcript: turns,
+          strengths: e.strengths,
+          improvements: e.improvements,
+          betterSentences: e.betterSentences,
+          suggestedPractice: e.suggestedPractice,
+        },
       });
+      toast.success("Session saved to your progress");
       onFinish(
         {
           topic: challenge?.title ?? mode.title,
@@ -166,7 +189,7 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
         newAchievements.map((id: string) => ACHIEVEMENT_LABELS[id] ?? id),
       );
     } catch {
-      setError("Could not generate your report. Please try again.");
+      setError("Your report was created but saving it failed. Please try Finish again.");
       setFinishing(false);
     }
   };

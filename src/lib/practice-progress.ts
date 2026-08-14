@@ -9,6 +9,25 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
+/** Transcript turn as shown in the coach panel. */
+export type SessionTurn = { role: "user" | "model"; text: string };
+
+/**
+ * Extra evaluation detail persisted alongside the numeric scores.
+ * Stored as JSON in `practice_sessions.notes` so no schema change is needed.
+ */
+export type SessionDetails = {
+  modeId?: string;
+  challengeTitle?: string;
+  startedAt?: string;
+  completedAt?: string;
+  transcript?: SessionTurn[];
+  strengths?: string[];
+  improvements?: string[];
+  betterSentences?: string[];
+  suggestedPractice?: string;
+};
+
 export type PracticeSessionResult = {
   modeTitle: string;
   durationMinutes: number;
@@ -19,6 +38,7 @@ export type PracticeSessionResult = {
   fluency: number;
   confidence: number;
   finishedAt: string;
+  details?: SessionDetails;
 };
 
 export type PracticeStats = {
@@ -168,7 +188,22 @@ export async function fetchPracticeSessions(
     fluency: row.fluency,
     confidence: row.confidence,
     finishedAt: row.created_at,
+    details: parseSessionDetails(row.notes),
   }));
+}
+
+/** `notes` holds a JSON blob of evaluation feedback + transcript; ignore anything else. */
+function parseSessionDetails(notes: string | null): SessionDetails | undefined {
+  if (!notes) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(notes);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as SessionDetails;
+    }
+  } catch {
+    /* legacy plain-text note */
+  }
+  return undefined;
 }
 
 export async function recordPracticeSession(
@@ -188,6 +223,7 @@ export async function recordPracticeSession(
     vocabulary: result.vocabulary,
     fluency: result.fluency,
     confidence: result.confidence,
+    notes: result.details ? JSON.stringify(result.details) : null,
   });
   if (sessionError) throw new Error(sessionError.message);
 
