@@ -223,6 +223,7 @@ export async function recordPracticeSession(
     vocabulary: result.vocabulary,
     fluency: result.fluency,
     confidence: result.confidence,
+    notes: result.details ? JSON.stringify(result.details) : null,
   });
   if (sessionError) throw new Error(sessionError.message);
 
