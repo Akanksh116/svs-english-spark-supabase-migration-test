@@ -54,6 +54,7 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
   const [voiceConfidence, setVoiceConfidence] = useState<number | null>(null);
   const recordSession = useRecordPracticeSession();
   const started = useRef(false);
+  const startedAt = useRef(new Date().toISOString());
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
