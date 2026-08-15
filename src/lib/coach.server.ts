@@ -106,6 +106,60 @@ type GeminiOptions = {
   maxOutputTokens?: number;
 };
 
+/**
+ * Map a Gemini HTTP status to a coach error code + how long the key that hit it
+ * should be cooled down. `retryable` means: try the next configured key.
+ * Exported for tests.
+ */
+export function classifyHttpStatus(status: number): {
+  code: CoachError["code"];
+  cooldownMs: number;
+  retryable: boolean;
+  message: string;
+} {
+  if (status === 401 || status === 403) {
+    return {
+      code: "invalid_key",
+      cooldownMs: 10 * 60_000,
+      retryable: true,
+      message: "The coach service key was rejected.",
+    };
+  }
+  if (status === 429) {
+    return {
+      code: "rate_limit",
+      cooldownMs: 60_000,
+      retryable: true,
+      message: "Too many requests right now. Please wait a moment.",
+    };
+  }
+  // 500/502/503/504/529 — provider overload or transient outage (UNAVAILABLE).
+  if (status >= 500 || status === 408) {
+    return {
+      code: "unavailable",
+      cooldownMs: 30_000,
+      retryable: true,
+      message: "The AI service is temporarily unavailable. Please try again.",
+    };
+  }
+  return {
+    code: "unavailable",
+    cooldownMs: 0,
+    retryable: false,
+    message: "The AI service could not process that request.",
+  };
+}
+
+/** Cooldown applied to a key for a given failure code. */
+const COOLDOWN_BY_CODE: Partial<Record<CoachError["code"], number>> = {
+  rate_limit: 60_000,
+  invalid_key: 10 * 60_000,
+  unavailable: 30_000,
+};
+
+const ALL_KEYS_FAILED_MESSAGE =
+  "The AI service is temporarily unavailable. Please try again in a moment.";
+
 export async function callGemini({
   system,
   contents,
@@ -116,6 +170,7 @@ export async function callGemini({
     "./gemini-keys.server"
   );
 
+  // Each configured key appears at most once here: no infinite retry loop.
   const keys = getKeyRotation();
   if (keys.length === 0) throw new CoachError("Gemini API key is not configured.", "missing_key");
 
@@ -129,9 +184,10 @@ export async function callGemini({
     } catch (error) {
       if (!(error instanceof CoachError)) throw error;
       lastError = error;
-      // Quota/auth problems are key-specific: cool this key down and try the next.
-      if (error.code === "rate_limit" || error.code === "invalid_key" || error.code === "unavailable") {
-        markKeyExhausted(apiKey, error.code === "rate_limit" ? 60_000 : 10 * 60_000);
+      // Quota / auth / overload problems: cool this key down and try the next.
+      const cooldown = COOLDOWN_BY_CODE[error.code];
+      if (cooldown) {
+        markKeyExhausted(apiKey, cooldown);
         console.warn(`Gemini key ${describeKey(apiKey)} failed (${error.code}); trying next key.`);
         continue;
       }
@@ -139,7 +195,11 @@ export async function callGemini({
     }
   }
 
-  throw lastError ?? new CoachError("The coach service is unavailable.", "unavailable");
+  // Every key failed — surface a clean message, never the provider payload.
+  if (lastError?.code === "invalid_key" || lastError?.code === "missing_key") {
+    throw new CoachError(ALL_KEYS_FAILED_MESSAGE, "unavailable");
+  }
+  throw new CoachError(ALL_KEYS_FAILED_MESSAGE, lastError?.code ?? "unavailable");
 }
 
 async function requestGemini({
@@ -185,17 +245,10 @@ async function requestGemini({
 
   if (!response.ok) {
     const body = await response.text();
+    // Server-side log only; the thrown message stays generic for the browser.
     console.error(`Gemini request failed [${response.status}] model=${COACH_MODEL}: ${body}`);
-    if (response.status === 401 || response.status === 403) {
-      throw new CoachError("The coach service key was rejected.", "invalid_key");
-    }
-    if (response.status === 429) {
-      throw new CoachError("Too many requests right now. Please wait a moment.", "rate_limit");
-    }
-    throw new CoachError(
-      `Coach service error [${response.status}] from ${COACH_MODEL}: ${body.slice(0, 400)}`,
-      "unavailable",
-    );
+    const { code, message } = classifyHttpStatus(response.status);
+    throw new CoachError(message, code);
   }
 
   const payload = (await response.json()) as {
@@ -214,8 +267,9 @@ async function requestGemini({
     const reason =
       candidate?.finishReason ?? payload.promptFeedback?.blockReason ?? "empty response";
     console.error(`Gemini returned no text (${reason}): ${JSON.stringify(payload).slice(0, 600)}`);
-    throw new CoachError(`The coach returned no reply (${reason}).`, "unavailable");
+    throw new CoachError("The coach could not produce a reply. Please try again.", "unavailable");
   }
   return text;
 }
+
 
