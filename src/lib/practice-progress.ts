@@ -13,6 +13,7 @@ import {
   EMPTY_STATS,
   type PracticeSession,
   type PracticeStats,
+  type SessionDetails,
 } from "@/lib/practice-scoring";
 export type {
   SessionTurn,
