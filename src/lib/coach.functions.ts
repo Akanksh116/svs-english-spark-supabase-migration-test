@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const turnSchema = z.object({
   role: z.enum(["user", "model"]),
@@ -19,9 +20,11 @@ const chatInput = z.object({
 });
 
 const evaluateInput = z.object({
+  modeId: z.string().min(1).max(60).optional(),
   modeTitle: z.string().min(1).max(120),
   challenge: challengeSchema.optional(),
   durationMinutes: z.number().int().min(0).max(600),
+  startedAt: z.string().max(40).optional(),
   history: z.array(turnSchema).max(60),
 });
 
@@ -50,8 +53,23 @@ function toList(value: unknown, fallback: string[]) {
 }
 
 export const coachReply = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => chatInput.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { consumeRateLimit, COACH_REPLY_LIMIT } = await import("./rate-limit.server");
+    const gate = consumeRateLimit(
+      `coach-reply:${context.userId}`,
+      COACH_REPLY_LIMIT.limit,
+      COACH_REPLY_LIMIT.windowMs,
+    );
+    if (!gate.allowed) {
+      return {
+        ok: false as const,
+        code: "rate_limit" as const,
+        message: `Too many coach requests. Please wait ${gate.retryAfterSeconds}s and try again.`,
+      };
+    }
+
     const { buildSystemInstruction, callGemini, CoachError } = await import("./coach.server");
     try {
       const history = data.history.length
@@ -82,8 +100,23 @@ export const coachReply = createServerFn({ method: "POST" })
   });
 
 export const coachEvaluate = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => evaluateInput.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { consumeRateLimit, COACH_EVALUATE_LIMIT } = await import("./rate-limit.server");
+    const gate = consumeRateLimit(
+      `coach-evaluate:${context.userId}`,
+      COACH_EVALUATE_LIMIT.limit,
+      COACH_EVALUATE_LIMIT.windowMs,
+    );
+    if (!gate.allowed) {
+      return {
+        ok: false as const,
+        code: "rate_limit" as const,
+        message: `Too many session reports. Please wait ${gate.retryAfterSeconds}s and try again.`,
+      };
+    }
+
     const { EVALUATION_INSTRUCTION, callGemini, CoachError } = await import("./coach.server");
     const transcript = data.history
       .map((t) => `${t.role === "user" ? "Teacher" : "Coach"}: ${t.text}`)
@@ -135,7 +168,47 @@ export const coachEvaluate = createServerFn({ method: "POST" })
             ? parsed.suggestedPractice.trim()
             : "Speak for five minutes tomorrow on the same topic.",
       };
-      return { ok: true as const, evaluation };
+
+      // Authoritative persistence: server-computed scores, server-known user.
+      // The browser never writes practice_sessions / user_stats.
+      let newAchievements: string[] = [];
+      try {
+        const { persistCompletedSession } = await import("@/services/practice.server");
+        const completedAt = new Date().toISOString();
+        const durationMinutes = Math.min(180, Math.max(1, data.durationMinutes));
+        const saved = await persistCompletedSession(context.userId, {
+          modeTitle: data.modeTitle,
+          durationMinutes,
+          messages: data.history.length,
+          overall: evaluation.overall,
+          grammar: evaluation.grammar,
+          vocabulary: evaluation.vocabulary,
+          fluency: evaluation.fluency,
+          confidence: evaluation.confidence,
+          finishedAt: completedAt,
+          details: {
+            modeId: data.modeId,
+            challengeTitle: data.challenge?.title,
+            startedAt: data.startedAt,
+            completedAt,
+            transcript: data.history,
+            strengths: evaluation.strengths,
+            improvements: evaluation.improvements,
+            betterSentences: evaluation.betterSentences,
+            suggestedPractice: evaluation.suggestedPractice,
+          },
+        });
+        newAchievements = saved.newAchievements;
+      } catch (persistError) {
+        console.error("Failed to persist practice session", persistError);
+        return {
+          ok: false as const,
+          code: "unavailable" as const,
+          message: "Your report was created but saving it failed. Please try Finish again.",
+        };
+      }
+
+      return { ok: true as const, evaluation, newAchievements };
     } catch (error) {
       if (error instanceof CoachError) {
         return { ok: false as const, code: error.code, message: error.message };
