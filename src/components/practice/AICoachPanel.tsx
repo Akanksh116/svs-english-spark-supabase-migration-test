@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Bot,
@@ -21,7 +22,7 @@ import type { SessionSummaryData } from "@/components/practice/SessionSummary";
 import { VoiceRecorderPanel } from "@/components/practice/VoiceRecorderPanel";
 import { toast } from "sonner";
 import { coachEvaluate, coachReply, type CoachEvaluation } from "@/lib/coach.functions";
-import { useRecordPracticeSession, ACHIEVEMENT_LABELS } from "@/lib/practice-progress";
+import { ACHIEVEMENT_LABELS } from "@/lib/practice-progress";
 
 type Turn = { role: "user" | "model"; text: string };
 
@@ -43,6 +44,7 @@ interface Props {
 export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
   const reply = useServerFn(coachReply);
   const evaluate = useServerFn(coachEvaluate);
+  const queryClient = useQueryClient();
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
@@ -52,7 +54,6 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
   const [seconds, setSeconds] = useState(0);
   const [paused, setPaused] = useState(false);
   const [voiceConfidence, setVoiceConfidence] = useState<number | null>(null);
-  const recordSession = useRecordPracticeSession();
   const started = useRef(false);
   const startedAt = useRef(new Date().toISOString());
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -127,9 +128,17 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
     setError(null);
     const durationMinutes = Math.max(1, Math.round(seconds / 60));
     let e: CoachEvaluation;
+    let newAchievements: string[] = [];
     try {
       const res = await evaluate({
-        data: { modeTitle: mode.title, challenge, durationMinutes, history: turns },
+        data: {
+          modeId: mode.id,
+          modeTitle: mode.title,
+          challenge,
+          durationMinutes,
+          startedAt: startedAt.current,
+          history: turns,
+        },
       });
       if (!res.ok) {
         setError(res.message);
@@ -137,37 +146,18 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
         return;
       }
       e = res.evaluation;
+      newAchievements = res.newAchievements;
     } catch {
       setError("Could not generate your report. Please try again.");
       setFinishing(false);
       return;
     }
 
-    // Only a session that reached this point (evaluated on Finish) is persisted.
+    // The session and its scores were persisted server-side by coachEvaluate.
     try {
-      const { newAchievements } = await recordSession.mutateAsync({
-        modeTitle: mode.title,
-        durationMinutes,
-        messages: turns.length,
-        overall: e.overall,
-        grammar: e.grammar,
-        vocabulary: e.vocabulary,
-        fluency: e.fluency,
-        confidence: e.confidence,
-        finishedAt: new Date().toISOString(),
-        details: {
-          modeId: mode.id,
-          challengeTitle: challenge?.title,
-          startedAt: startedAt.current,
-          completedAt: new Date().toISOString(),
-          transcript: turns,
-          strengths: e.strengths,
-          improvements: e.improvements,
-          betterSentences: e.betterSentences,
-          suggestedPractice: e.suggestedPractice,
-        },
-      });
       toast.success("Session saved to your progress");
+      void queryClient.invalidateQueries({ queryKey: ["practice-stats"] });
+      void queryClient.invalidateQueries({ queryKey: ["practice-sessions"] });
       onFinish(
         {
           topic: challenge?.title ?? mode.title,
@@ -189,7 +179,7 @@ export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
         newAchievements.map((id: string) => ACHIEVEMENT_LABELS[id] ?? id),
       );
     } catch {
-      setError("Your report was created but saving it failed. Please try Finish again.");
+      setError("Your report was created but showing it failed. Please try Finish again.");
       setFinishing(false);
     }
   };
