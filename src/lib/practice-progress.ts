@@ -5,139 +5,28 @@
  * `practice_sessions`, `user_achievements`). RLS keeps every user's data
  * fully isolated — nothing is stored in the browser any more.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
-/** Transcript turn as shown in the coach panel. */
-export type SessionTurn = { role: "user" | "model"; text: string };
-
-/**
- * Extra evaluation detail persisted alongside the numeric scores.
- * Stored as JSON in `practice_sessions.notes` so no schema change is needed.
- */
-export type SessionDetails = {
-  modeId?: string;
-  challengeTitle?: string;
-  startedAt?: string;
-  completedAt?: string;
-  transcript?: SessionTurn[];
-  strengths?: string[];
-  improvements?: string[];
-  betterSentences?: string[];
-  suggestedPractice?: string;
-};
-
-export type PracticeSessionResult = {
-  modeTitle: string;
-  durationMinutes: number;
-  messages: number;
-  overall: number;
-  grammar: number;
-  vocabulary: number;
-  fluency: number;
-  confidence: number;
-  finishedAt: string;
-  details?: SessionDetails;
-};
-
-export type PracticeStats = {
-  xp: number;
-  growthScore: number;
-  practiceMinutes: number;
-  conversationCount: number;
-  dailyStreak: number;
-  longestStreak: number;
-  weeklyGoalMinutes: number;
-  monthlyGoalMinutes: number;
-  lastSessionDate: string | null;
-  unlockedAchievements: string[];
-};
-
-export type PracticeSession = PracticeSessionResult & { id: string };
-
-export const EMPTY_STATS: PracticeStats = {
-  xp: 0,
-  growthScore: 0,
-  practiceMinutes: 0,
-  conversationCount: 0,
-  dailyStreak: 0,
-  longestStreak: 0,
-  weeklyGoalMinutes: 90,
-  monthlyGoalMinutes: 400,
-  lastSessionDate: null,
-  unlockedAchievements: [],
-};
-
-export const ACHIEVEMENT_IDS = {
-  firstConversation: "first-conversation",
-  tenConversations: "ten-conversations",
-  grammarStar: "grammar-star",
-  vocabularyMaster: "vocabulary-master",
-  fluencyHero: "fluency-hero",
-} as const;
-
-export const ACHIEVEMENT_LABELS: Record<string, string> = {
-  [ACHIEVEMENT_IDS.firstConversation]: "First Conversation",
-  [ACHIEVEMENT_IDS.tenConversations]: "10 Conversations",
-  [ACHIEVEMENT_IDS.grammarStar]: "Grammar Star",
-  [ACHIEVEMENT_IDS.vocabularyMaster]: "Vocabulary Master",
-  [ACHIEVEMENT_IDS.fluencyHero]: "Fluency Hero",
-};
-
-function dayKey(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-/** Pure stat/achievement calculation — no side effects. */
-export function computeSessionUpdate(
-  stats: PracticeStats,
-  result: PracticeSessionResult,
-): { stats: PracticeStats; newAchievements: string[] } {
-  const today = dayKey(new Date(result.finishedAt));
-  const yesterday = dayKey(new Date(Date.now() - 86_400_000));
-
-  const dailyStreak =
-    stats.lastSessionDate === today
-      ? Math.max(1, stats.dailyStreak)
-      : stats.lastSessionDate === yesterday
-        ? stats.dailyStreak + 1
-        : 1;
-
-  const xpGain = 20 + result.durationMinutes * 5 + Math.round(result.overall / 10);
-  const conversationCount = stats.conversationCount + 1;
-
-  const next: PracticeStats = {
-    ...stats,
-    xp: stats.xp + xpGain,
-    growthScore: Math.round(
-      (stats.growthScore * stats.conversationCount + result.overall) / conversationCount,
-    ),
-    practiceMinutes: stats.practiceMinutes + result.durationMinutes,
-    conversationCount,
-    dailyStreak,
-    longestStreak: Math.max(stats.longestStreak, dailyStreak),
-    lastSessionDate: today,
-  };
-
-  const unlocked = new Set(stats.unlockedAchievements);
-  const newAchievements: string[] = [];
-  const unlock = (id: string, condition: boolean) => {
-    if (condition && !unlocked.has(id)) {
-      unlocked.add(id);
-      newAchievements.push(id);
-    }
-  };
-
-  unlock(ACHIEVEMENT_IDS.firstConversation, conversationCount >= 1);
-  unlock(ACHIEVEMENT_IDS.tenConversations, conversationCount >= 10);
-  unlock(ACHIEVEMENT_IDS.grammarStar, result.grammar >= 85);
-  unlock(ACHIEVEMENT_IDS.vocabularyMaster, result.vocabulary >= 85);
-  unlock(ACHIEVEMENT_IDS.fluencyHero, result.fluency >= 85);
-
-  next.unlockedAchievements = Array.from(unlocked);
-  return { stats: next, newAchievements };
-}
+import {
+  EMPTY_STATS,
+  type PracticeSession,
+  type PracticeStats,
+} from "@/lib/practice-scoring";
+export type {
+  SessionTurn,
+  SessionDetails,
+  PracticeSessionResult,
+  PracticeStats,
+  PracticeSession,
+} from "@/lib/practice-scoring";
+export {
+  EMPTY_STATS,
+  ACHIEVEMENT_IDS,
+  ACHIEVEMENT_LABELS,
+  computeSessionUpdate,
+} from "@/lib/practice-scoring";
 
 export async function fetchPracticeStats(userId: string): Promise<PracticeStats> {
   const [{ data: row }, { data: achievements }] = await Promise.all([
@@ -206,52 +95,6 @@ function parseSessionDetails(notes: string | null): SessionDetails | undefined {
   return undefined;
 }
 
-export async function recordPracticeSession(
-  userId: string,
-  result: PracticeSessionResult,
-): Promise<{ stats: PracticeStats; newAchievements: string[] }> {
-  const current = await fetchPracticeStats(userId);
-  const { stats, newAchievements } = computeSessionUpdate(current, result);
-
-  const { error: sessionError } = await supabase.from("practice_sessions").insert({
-    user_id: userId,
-    mode_title: result.modeTitle,
-    duration_minutes: result.durationMinutes,
-    message_count: result.messages,
-    overall: result.overall,
-    grammar: result.grammar,
-    vocabulary: result.vocabulary,
-    fluency: result.fluency,
-    confidence: result.confidence,
-    notes: result.details ? JSON.stringify(result.details) : null,
-  });
-  if (sessionError) throw new Error(sessionError.message);
-
-  const { error: statsError } = await supabase.from("user_stats").upsert(
-    {
-      user_id: userId,
-      xp: stats.xp,
-      growth_score: stats.growthScore,
-      practice_minutes: stats.practiceMinutes,
-      conversation_count: stats.conversationCount,
-      daily_streak: stats.dailyStreak,
-      longest_streak: stats.longestStreak,
-      last_session_date: stats.lastSessionDate,
-    },
-    { onConflict: "user_id" },
-  );
-  if (statsError) throw new Error(statsError.message);
-
-  if (newAchievements.length > 0) {
-    await supabase.from("user_achievements").upsert(
-      newAchievements.map((achievement_id) => ({ user_id: userId, achievement_id })),
-      { onConflict: "user_id,achievement_id" },
-    );
-  }
-
-  return { stats, newAchievements };
-}
-
 export function usePracticeStats() {
   const { user } = useAuth();
   const userId = user?.id;
@@ -272,18 +115,6 @@ export function usePracticeSessions(limit = 20) {
     enabled: Boolean(userId),
   });
   return { sessions: query.data ?? [], loading: query.isLoading };
-}
-
-export function useRecordPracticeSession() {
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (result: PracticeSessionResult) => recordPracticeSession(user!.id, result),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["practice-stats"] });
-      void queryClient.invalidateQueries({ queryKey: ["practice-sessions"] });
-    },
-  });
 }
 
 /** Shared XP → level mapping so every page shows the same level for a user. */
