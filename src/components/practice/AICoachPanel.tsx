@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Bot,
@@ -43,6 +44,7 @@ interface Props {
 export function AICoachPanel({ mode, challenge, onFinish, onCancel }: Props) {
   const reply = useServerFn(coachReply);
   const evaluate = useServerFn(coachEvaluate);
+  const queryClient = useQueryClient();
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");

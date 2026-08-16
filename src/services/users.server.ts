@@ -219,6 +219,8 @@ export async function createStaff(input: CreateStaffInput): Promise<{ id: string
     .upsert({ user_id: id, role: input.role }, { onConflict: "user_id,role" });
   if (roleError) throw new Error(roleError.message);
 
+  if (input.status !== "active") await applyAuthStatus(id, input.status);
+
   await supabaseAdmin.from("user_stats").upsert({ user_id: id }, { onConflict: "user_id" });
   await supabaseAdmin.from("user_settings").upsert({ user_id: id }, { onConflict: "user_id" });
 
@@ -246,9 +248,7 @@ export async function updateStaff(input: UpdateStaffInput): Promise<void> {
     .eq("id", input.id);
   if (error) throw new Error(error.message);
 
-  if (input.status === "inactive") {
-    await supabaseAdmin.auth.admin.signOut(input.id, "global").catch(() => undefined);
-  }
+  await applyAuthStatus(input.id, input.status);
 
   await supabaseAdmin.from("user_roles").delete().eq("user_id", input.id);
   const { error: roleError } = await supabaseAdmin
@@ -257,14 +257,34 @@ export async function updateStaff(input: UpdateStaffInput): Promise<void> {
   if (roleError) throw new Error(roleError.message);
 }
 
+/**
+ * Enforce the profile status inside Supabase Auth itself.
+ *
+ * Checking `profiles.status` only in our login server function is not enough:
+ * a deactivated user who knows their password could call GoTrue directly and
+ * still get a session. Banning the auth user blocks sign-in and token refresh
+ * at the source; the global sign-out revokes refresh tokens already issued.
+ */
+export async function applyAuthStatus(
+  id: string,
+  status: "active" | "inactive" | "suspended",
+): Promise<void> {
+  const active = status === "active";
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(id, {
+    // "none" lifts an existing ban; a long duration keeps the account blocked.
+    ban_duration: active ? "none" : "876000h",
+  } as { ban_duration: string });
+  if (error) throw new Error(error.message);
+
+  if (!active) {
+    await supabaseAdmin.auth.admin.signOut(id, "global").catch(() => undefined);
+  }
+}
+
 export async function setStaffStatus(id: string, status: "active" | "inactive"): Promise<void> {
   const { error } = await supabaseAdmin.from("profiles").update({ status }).eq("id", id);
   if (error) throw new Error(error.message);
-  // Deactivating must also end any session the user already holds, otherwise
-  // they keep browsing until their token expires.
-  if (status === "inactive") {
-    await supabaseAdmin.auth.admin.signOut(id, "global").catch(() => undefined);
-  }
+  await applyAuthStatus(id, status);
 }
 
 export async function setStaffPassword(id: string, password: string): Promise<void> {
