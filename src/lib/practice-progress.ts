@@ -36,10 +36,9 @@ export async function fetchPracticeStats(userId: string): Promise<PracticeStats>
 
   const unlockedAchievements = (achievements ?? []).map((a) => a.achievement_id);
 
-  if (!row) {
-    await supabase.from("user_stats").insert({ user_id: userId });
-    return { ...EMPTY_STATS, unlockedAchievements };
-  }
+  // Stats rows are created server-side (signup / first saved session); the
+  // browser has no write access to user_stats.
+  if (!row) return { ...EMPTY_STATS, unlockedAchievements };
 
   return {
     xp: row.xp,
