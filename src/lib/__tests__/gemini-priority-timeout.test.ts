@@ -189,3 +189,54 @@ describe("concurrent rotation state", () => {
     expect(plan[0]).toBe(PAID);
   });
 });
+
+describe("network error failover", () => {
+  it("tries the next key when a key hits a transient network error", async () => {
+    const { callGemini } = await import("../coach.server");
+    const seen: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (_url, init) => {
+      const key = new Headers((init as RequestInit).headers).get("x-goog-api-key")!;
+      seen.push(key);
+      if (seen.length === 1) throw new TypeError("fetch failed");
+      return new Response(
+        JSON.stringify({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch);
+
+    await expect(callGemini({ system: "s", contents: [] })).resolves.toBe("ok");
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toBe(PAID);
+    expect(seen[1]).not.toBe(PAID);
+  });
+
+  it("cools the failed key down so the next request skips it", async () => {
+    const { callGemini } = await import("../coach.server");
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (_url, init) => {
+      const key = new Headers((init as RequestInit).headers).get("x-goog-api-key")!;
+      if (key === PAID) throw new TypeError("fetch failed");
+      return new Response(
+        JSON.stringify({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch);
+
+    await callGemini({ system: "s", contents: [] });
+    expect(getKeyRotation()).not.toContain(PAID);
+  });
+
+  it("returns one clean generic error when every key fails with a network error", async () => {
+    const { callGemini } = await import("../coach.server");
+    let calls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation((async () => {
+      calls++;
+      throw new TypeError("fetch failed: ECONNREFUSED 142.250.1.1:443");
+    }) as typeof fetch);
+
+    await expect(callGemini({ system: "s", contents: [] })).rejects.toThrow(
+      /temporarily unavailable/i,
+    );
+    // Exactly one attempt per configured key, no provider detail leaked.
+    expect(calls).toBe(ALL.length);
+  });
+});
