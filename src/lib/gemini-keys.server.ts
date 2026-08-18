@@ -40,24 +40,53 @@ export function getGeminiKeys(): string[] {
 }
 
 /**
+ * The preferred ("paid") key. GEMINI_API_KEY_1 is the paid Gemini project;
+ * keys 2..5 and the bare GEMINI_API_KEY fallback are overflow/failover.
+ * Returns undefined when no key is configured.
+ */
+export function getPrimaryKey(): string | undefined {
+  const explicit = process.env.GEMINI_API_KEY_1?.trim();
+  if (explicit) return explicit;
+  return getGeminiKeys()[0];
+}
+
+/**
  * Pure rotation logic (exported for tests).
- * Healthy keys first, in round-robin order starting at `start`.
- * Cooled-down keys are only used when NO key is healthy, so a single request
- * still tries every key at most once and never loops.
+ *
+ * Ordering rules:
+ * 1. If `primary` is configured and healthy it is tried FIRST on every request
+ *    (the paid project absorbs normal traffic).
+ * 2. Remaining keys follow in round-robin order starting at `start`, so
+ *    overflow traffic spreads across the free projects.
+ * 3. Cooled-down keys are only used when NO key is healthy, so a single request
+ *    still tries every key at most once and never loops.
  */
 export function planRotation(
   keys: string[],
   start: number,
   cooldownUntil: Map<string, number>,
   now: number,
+  primary?: string,
 ): string[] {
   const unique = Array.from(new Set(keys));
   if (unique.length === 0) return [];
-  const offset = ((start % unique.length) + unique.length) % unique.length;
-  const ordered = [...unique.slice(offset), ...unique.slice(0, offset)];
-  const healthy = ordered.filter((k) => (cooldownUntil.get(k) ?? 0) <= now);
-  // Last resort: every key is cooling down — try them all once anyway.
-  return healthy.length > 0 ? healthy : ordered;
+
+  const rest = primary ? unique.filter((k) => k !== primary) : unique;
+  const base = rest.length > 0 ? rest : unique;
+  const offset = ((start % base.length) + base.length) % base.length;
+  const rotated = [...base.slice(offset), ...base.slice(0, offset)];
+
+  const hasPrimary = Boolean(primary) && unique.includes(primary!);
+  const ordered = hasPrimary && rest.length > 0 ? [primary!, ...rotated] : rotated;
+
+  const isHealthy = (k: string) => (cooldownUntil.get(k) ?? 0) <= now;
+  const healthy = ordered.filter(isHealthy);
+  if (healthy.length === 0) {
+    // Last resort: every key is cooling down — try them all once anyway.
+    return ordered;
+  }
+  // Keep cooled keys out of the plan, but preserve primary-first ordering.
+  return healthy;
 }
 
 /** Ordered list of keys to try for one request. Each key appears at most once. */
@@ -66,10 +95,10 @@ export function getKeyRotation(): string[] {
   if (keys.length === 0) return [];
 
   const s = state();
-  const start = s.cursor % keys.length;
-  s.cursor = (s.cursor + 1) % keys.length;
+  const start = s.cursor;
+  s.cursor = (s.cursor + 1) % Math.max(1, keys.length);
 
-  return planRotation(keys, start, s.cooldownUntil, Date.now());
+  return planRotation(keys, start, s.cooldownUntil, Date.now(), getPrimaryKey());
 }
 
 export function markKeyExhausted(key: string, ms = COOLDOWN_MS) {
