@@ -200,9 +200,8 @@ export async function callGemini({
   json,
   maxOutputTokens = 512,
 }: GeminiOptions): Promise<string> {
-  const { getKeyRotation, markKeyExhausted, markKeyHealthy, describeKey } = await import(
-    "./gemini-keys.server"
-  );
+  const { getKeyRotation, markKeyExhausted, markKeyHealthy, describeKey } =
+    await import("./gemini-keys.server");
 
   // Each configured key appears at most once here: no infinite retry loop.
   const keys = getKeyRotation();
@@ -327,5 +326,3 @@ async function requestGemini({
   }
   return text;
 }
-
-
