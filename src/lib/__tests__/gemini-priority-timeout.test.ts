@@ -158,3 +158,34 @@ describe("timeout failover", () => {
     for (const k of ALL) expect((err as Error).message).not.toContain(k);
   });
 });
+
+describe("concurrent rotation state", () => {
+  it("shares cooldowns across concurrent requests instead of resetting per call", () => {
+    markKeyExhausted(PAID, 60_000);
+    // Two "requests" interleaved: neither may resurrect the cooling paid key.
+    const a = getKeyRotation();
+    const b = getKeyRotation();
+    expect(a).not.toContain(PAID);
+    expect(b).not.toContain(PAID);
+  });
+
+  it("never returns a key twice within one request, whatever the cursor is", () => {
+    for (let i = 0; i < 20; i++) {
+      const plan = getKeyRotation();
+      expect(new Set(plan).size).toBe(plan.length);
+    }
+  });
+
+  it("keeps every configured key reachable as the cursor advances", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 20; i++) for (const k of getKeyRotation()) seen.add(k);
+    expect([...seen].sort()).toEqual([...ALL].sort());
+  });
+
+  it("falls back to trying every key once when all of them are cooling down", () => {
+    for (const k of ALL) markKeyExhausted(k, 60_000);
+    const plan = getKeyRotation();
+    expect(new Set(plan).size).toBe(ALL.length);
+    expect(plan[0]).toBe(PAID);
+  });
+});
