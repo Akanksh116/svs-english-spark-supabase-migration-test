@@ -155,10 +155,44 @@ const COOLDOWN_BY_CODE: Partial<Record<CoachError["code"], number>> = {
   rate_limit: 60_000,
   invalid_key: 10 * 60_000,
   unavailable: 30_000,
+  // A key that stalled is skipped briefly so the next request does not pay the
+  // same wall-clock cost again.
+  timeout: 15_000,
 };
 
 const ALL_KEYS_FAILED_MESSAGE =
   "The AI service is temporarily unavailable. Please try again in a moment.";
+
+/**
+ * Timeout budget.
+ *
+ * The app runs as serverless functions, so a single slow Gemini call must never
+ * consume the whole platform execution window — otherwise the platform kills
+ * the function before any failover key is tried and the user sees a hard 504.
+ *
+ * - ATTEMPT_TIMEOUT_MS caps ONE key attempt.
+ * - TOTAL_DEADLINE_MS caps the whole request across all failover attempts.
+ *
+ * Defaults are deliberately conservative so at least two attempts fit inside a
+ * typical serverless execution limit. Both can be raised per-environment
+ * (without code changes) when the deployment allows a longer function
+ * duration.
+ */
+function readMs(name: string, fallback: number): number {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
+export const DEFAULT_ATTEMPT_TIMEOUT_MS = 12_000;
+export const DEFAULT_TOTAL_DEADLINE_MS = 25_000;
+/** Below this much remaining budget a new attempt cannot realistically finish. */
+export const MIN_ATTEMPT_BUDGET_MS = 2_500;
+
+export function getTimeoutBudget() {
+  const attempt = readMs("GEMINI_ATTEMPT_TIMEOUT_MS", DEFAULT_ATTEMPT_TIMEOUT_MS);
+  const total = readMs("GEMINI_TOTAL_DEADLINE_MS", DEFAULT_TOTAL_DEADLINE_MS);
+  return { attemptTimeoutMs: Math.min(attempt, total), totalDeadlineMs: total };
+}
 
 export async function callGemini({
   system,
@@ -166,25 +200,41 @@ export async function callGemini({
   json,
   maxOutputTokens = 512,
 }: GeminiOptions): Promise<string> {
-  const { getKeyRotation, markKeyExhausted, markKeyHealthy, describeKey } = await import(
-    "./gemini-keys.server"
-  );
+  const { getKeyRotation, markKeyExhausted, markKeyHealthy, describeKey } =
+    await import("./gemini-keys.server");
 
   // Each configured key appears at most once here: no infinite retry loop.
   const keys = getKeyRotation();
   if (keys.length === 0) throw new CoachError("Gemini API key is not configured.", "missing_key");
 
+  const { attemptTimeoutMs, totalDeadlineMs } = getTimeoutBudget();
+  const deadline = Date.now() + totalDeadlineMs;
+
   let lastError: CoachError | undefined;
 
   for (const apiKey of keys) {
+    const remaining = deadline - Date.now();
+    if (remaining < MIN_ATTEMPT_BUDGET_MS) {
+      // Out of request budget — stop instead of getting killed mid-flight.
+      lastError ??= new CoachError("The coach took too long to respond.", "timeout");
+      break;
+    }
+
     try {
-      const text = await requestGemini({ apiKey, system, contents, json, maxOutputTokens });
+      const text = await requestGemini({
+        apiKey,
+        system,
+        contents,
+        json,
+        maxOutputTokens,
+        timeoutMs: Math.min(attemptTimeoutMs, remaining),
+      });
       markKeyHealthy(apiKey);
       return text;
     } catch (error) {
       if (!(error instanceof CoachError)) throw error;
       lastError = error;
-      // Quota / auth / overload problems: cool this key down and try the next.
+      // Quota / auth / overload / stall: cool this key down and try the next.
       const cooldown = COOLDOWN_BY_CODE[error.code];
       if (cooldown) {
         markKeyExhausted(apiKey, cooldown);
@@ -208,9 +258,14 @@ async function requestGemini({
   contents,
   json,
   maxOutputTokens,
-}: GeminiOptions & { apiKey: string; maxOutputTokens: number }): Promise<string> {
+  timeoutMs,
+}: GeminiOptions & {
+  apiKey: string;
+  maxOutputTokens: number;
+  timeoutMs: number;
+}): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   try {
@@ -271,5 +326,3 @@ async function requestGemini({
   }
   return text;
 }
-
-
