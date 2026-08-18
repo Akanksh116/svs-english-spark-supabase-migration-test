@@ -61,10 +61,16 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 function withSecurityHeaders(response: Response): Response {
-  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
-    if (!response.headers.has(name)) response.headers.set(name, value);
+  try {
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+      if (!response.headers.has(name)) response.headers.set(name, value);
+    }
+    return response;
+  } catch {
+    // Some runtimes return responses with immutable headers — never fail the
+    // request just to add hardening headers.
+    return response;
   }
-  return response;
 }
 
 export default {
