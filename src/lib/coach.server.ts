@@ -259,9 +259,14 @@ async function requestGemini({
   contents,
   json,
   maxOutputTokens,
-}: GeminiOptions & { apiKey: string; maxOutputTokens: number }): Promise<string> {
+  timeoutMs,
+}: GeminiOptions & {
+  apiKey: string;
+  maxOutputTokens: number;
+  timeoutMs: number;
+}): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   try {
