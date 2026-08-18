@@ -17,13 +17,14 @@ export default defineNitroConfig({
        * call plus key failover, which would kill the function before the
        * fallback key is tried.
        *
-       * `"max"` asks Vercel for the highest duration the current plan allows,
-       * instead of hard-coding a number that a Hobby deployment could reject.
-       * The application budget (12s per Gemini attempt, 25s total per request —
-       * both overridable via GEMINI_ATTEMPT_TIMEOUT_MS / GEMINI_TOTAL_DEADLINE_MS)
-       * must stay below whatever this resolves to.
+       * 60s is the documented Vercel Hobby ceiling — a deterministic number is
+       * used instead of "max" so the emitted Build Output config is never
+       * ambiguous. The application budget (12s per Gemini attempt, 25s total
+       * per request — both overridable via GEMINI_ATTEMPT_TIMEOUT_MS /
+       * GEMINI_TOTAL_DEADLINE_MS) stays well inside it.
        */
-      maxDuration: "max",
+      maxDuration: 60,
     },
+
   },
 });
