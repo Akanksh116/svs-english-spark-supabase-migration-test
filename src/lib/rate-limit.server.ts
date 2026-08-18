@@ -73,3 +73,5 @@ export function resetRateLimits(): void {
 /** Per-user limits for the AI coach endpoints. */
 export const COACH_REPLY_LIMIT = { limit: 40, windowMs: 60_000 };
 export const COACH_EVALUATE_LIMIT = { limit: 10, windowMs: 60_000 };
+/** Sign-in attempts per User ID (brute-force protection). */
+export const LOGIN_LIMIT = { limit: 10, windowMs: 5 * 60_000 };

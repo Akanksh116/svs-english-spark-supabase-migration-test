@@ -37,10 +37,27 @@ const createSchema = z.object({
 
 const updateSchema = z.object({ id: z.string().uuid(), ...staffFields });
 
-/** Public: exchanges a User ID + password for a session. */
+/**
+ * Public: exchanges a User ID + password for a session.
+ * Rate limited per User ID so the only unauthenticated endpoint in the app
+ * cannot be used for password brute-forcing.
+ */
 export const signInWithUserId = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => signInSchema.parse(data))
   .handler(async ({ data }) => {
+    const { consumeRateLimit, LOGIN_LIMIT } = await import("@/lib/rate-limit.server");
+    const gate = consumeRateLimit(
+      `signin:${data.loginId}`,
+      LOGIN_LIMIT.limit,
+      LOGIN_LIMIT.windowMs,
+    );
+    if (!gate.allowed) {
+      return {
+        ok: false as const,
+        message: `Too many sign-in attempts. Please wait ${gate.retryAfterSeconds}s and try again.`,
+      };
+    }
+
     const { signInWithLoginId } = await import("./users.server");
     return signInWithLoginId(data.loginId, data.password);
   });
