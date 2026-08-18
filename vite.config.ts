@@ -6,6 +6,10 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+// Deployment note: inside the Lovable sandbox the plugin forces the
+// cloudflare-module preset. On Vercel, nitro auto-detects the `vercel` preset
+// from the VERCEL build env and emits `.vercel/output` (Build Output API) with
+// a Node serverless function. Vercel-specific settings live in nitro.config.ts.
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
