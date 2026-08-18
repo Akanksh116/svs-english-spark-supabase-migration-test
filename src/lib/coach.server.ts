@@ -158,7 +158,11 @@ const COOLDOWN_BY_CODE: Partial<Record<CoachError["code"], number>> = {
   // A key that stalled is skipped briefly so the next request does not pay the
   // same wall-clock cost again.
   timeout: 15_000,
+  // A transient fetch/DNS/socket failure is usually endpoint- or key-project
+  // specific, so try the next key immediately and cool this one down briefly.
+  network: 10_000,
 };
+
 
 const ALL_KEYS_FAILED_MESSAGE =
   "The AI service is temporarily unavailable. Please try again in a moment.";
