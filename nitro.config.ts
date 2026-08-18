@@ -25,6 +25,5 @@ export default defineNitroConfig({
        */
       maxDuration: 60,
     },
-
   },
 });

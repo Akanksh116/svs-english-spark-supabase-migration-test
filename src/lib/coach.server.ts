@@ -163,7 +163,6 @@ const COOLDOWN_BY_CODE: Partial<Record<CoachError["code"], number>> = {
   network: 10_000,
 };
 
-
 const ALL_KEYS_FAILED_MESSAGE =
   "The AI service is temporarily unavailable. Please try again in a moment.";
 
