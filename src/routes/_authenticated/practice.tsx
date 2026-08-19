@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Mic,
@@ -147,6 +147,7 @@ function PracticePage() {
   const { start, challenge: challengeId } = Route.useSearch();
   const navigate = Route.useNavigate();
   const [active, setActive] = useState<PracticeMode | null>(null);
+  const sessionRef = useRef<HTMLDivElement | null>(null);
   const [challengeCtx, setChallengeCtx] = useState<{ title: string; description?: string } | null>(
     null,
   );
@@ -202,10 +203,20 @@ function PracticePage() {
 
   const startSession = (mode: PracticeMode) => {
     setChallengeCtx(null);
-    setActive(mode);
+    setActive((cur) => (cur && cur.id === mode.id ? cur : mode));
     setSummary(null);
     setUnlocked([]);
   };
+
+  // On mobile the coach panel renders above the mode cards, so scroll it into
+  // view; otherwise a tap looks like nothing happened.
+  useEffect(() => {
+    if (!active) return;
+    const id = requestAnimationFrame(() => {
+      sessionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [active]);
 
   return (
     <PageContainer>
@@ -220,6 +231,7 @@ function PracticePage() {
       />
 
       {/* Section 2: Current Session */}
+      <div ref={sessionRef} className="scroll-mt-20" />
       {active ? (
         <AICoachPanel
           key={active.id}
