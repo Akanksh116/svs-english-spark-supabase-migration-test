@@ -1,5 +1,15 @@
 import { useEffect } from "react";
-import { AlertTriangle, Copy, Keyboard, Mic, MicOff, Pause, Play, Send, Square } from "lucide-react";
+import {
+  AlertTriangle,
+  Copy,
+  Keyboard,
+  Mic,
+  MicOff,
+  Pause,
+  Play,
+  Send,
+  Square,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useVoiceRecorder } from "@/lib/use-voice-recorder";
@@ -94,12 +104,7 @@ export function VoiceRecorderPanel({ disabled, onSend, onConfidence }: Props) {
               <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" />
               Listening
             </span>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-11 gap-2"
-              onClick={rec.pause}
-            >
+            <Button type="button" variant="outline" className="h-11 gap-2" onClick={rec.pause}>
               <Pause className="h-5 w-5" /> Pause
             </Button>
           </>
